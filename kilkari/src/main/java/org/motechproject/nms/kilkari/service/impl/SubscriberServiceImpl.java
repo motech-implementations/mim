@@ -40,10 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.jdo.Query;
 import javax.validation.ConstraintViolationException;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import static org.motechproject.nms.kilkari.utils.RejectedObjectConverter.childRejectionMcts;
 import static org.motechproject.nms.kilkari.utils.RejectedObjectConverter.childRejectionRch;
@@ -637,6 +634,34 @@ public class SubscriberServiceImpl implements SubscriberService {
                     }
                 }
             } else { //subscriber exists with provided msisdn
+
+                //adding active and attached mother subscriber to the temporary newList to avoid multiple subscription
+                //changes made to fix multiple subscription issue open
+                boolean activeSubscriptionExists=false;
+                List<Subscriber> newList= new ArrayList<>();
+                for (Subscriber subscriber : subscribersByMsisdn) {
+                    long activeSubscriptionCount=0;
+                    activeSubscriptionCount=subscriptionService.getActiveSubscriptionBySubscriber(subscriber).size();
+
+                    boolean isMotherExists;
+                    try{
+                        isMotherExists=childUpdate.getMother().getRchId().equals(subscriber.getMother().getRchId());
+                    }
+                    catch (Exception e){
+                        isMotherExists=false;
+                    }
+                    if(activeSubscriptionCount>0){
+                        activeSubscriptionExists=true;
+                    }
+                    if(activeSubscriptionCount>0||isMotherExists){
+                        newList.add(subscriber);
+                    }
+                }
+                if(!newList.isEmpty()){
+                    subscribersByMsisdn=newList;
+                }
+                //changes made to fix multiple subscription issue close
+
                 if (subscribersByMsisdn.size() == 1 && (childUpdate.getMother() != null) && (subscribersByMsisdn.get(0).getMother() != null) && subscribersByMsisdn.get(0).getChild() == null) {
                     //update subscriber with child
                     if (childUpdate.getMother().getRchId() != null  && subscribersByMsisdn.get(0).getMother().getRchId() != null && childUpdate.getMother().getRchId().equals(subscribersByMsisdn.get(0).getMother().getRchId())) {
@@ -647,7 +672,9 @@ public class SubscriberServiceImpl implements SubscriberService {
                         Subscription subscription = subscriptionService.getActiveSubscription(subscriber, pack.getType());
                         finalSubscription = updateOrCreateSubscription(subscriber, subscription, dob, pack, language, circle, SubscriptionOrigin.RCH_IMPORT, false);
                     } else {
-                        if (subscriptionService.activeSubscriptionByMsisdnRch(subscribersByMsisdn,msisdn, SubscriptionPackType.CHILD, motherRchId, childUpdate.getRchId())) {
+                        //this method is checking only with active child subscriber, to fix this we use boolean activeSubscriptionExists
+//                        if (subscriptionService.activeSubscriptionByMsisdnRch(subscribersByMsisdn,msisdn, SubscriptionPackType.CHILD, motherRchId, childUpdate.getRchId())) {
+                       if(activeSubscriptionExists){
                             return childRejectionRch(convertMapToRchChild(record), false, RejectionReasons.MOBILE_NUMBER_ALREADY_SUBSCRIBED.toString(), action);
                         } else {
                             Subscriber subscriber = new Subscriber(msisdn, language);
@@ -667,7 +694,9 @@ public class SubscriberServiceImpl implements SubscriberService {
                     create(subscriber);
                     finalSubscription = subscriptionService.createSubscription(subscriber, msisdn, language, pack, SubscriptionOrigin.RCH_IMPORT);
                 } else {
-                    if (subscriptionService.activeSubscriptionByMsisdnRch(subscribersByMsisdn,msisdn, SubscriptionPackType.CHILD, motherRchId, childUpdate.getRchId())) {
+                    //this method is checking only with active child subscriber, to fix this we use boolean activeSubscriptionExists
+//                    if (subscriptionService.activeSubscriptionByMsisdnRch(subscribersByMsisdn,msisdn, SubscriptionPackType.CHILD, motherRchId, childUpdate.getRchId())) {
+                      if(activeSubscriptionExists){
                         return childRejectionRch(convertMapToRchChild(record), false, RejectionReasons.MOBILE_NUMBER_ALREADY_SUBSCRIBED.toString(), action);
                     } else {
                         Subscriber subscriber = new Subscriber(msisdn, language);
